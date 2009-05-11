@@ -1,10 +1,11 @@
 ## Process this file with automake to produce Makefile.in
 
 INCLUDES = -I$(top_builddir) \
-           -I$(top_srcdir)/include
+           -I$(top_srcdir)/include \
+           $(UIOMUX_CFLAGS)
 
 SHCODECSDIR = ../libshcodecs
-SHCODECS_LIBS = $(SHCODECSDIR)/libshcodecs.la $(VPU4_LIBS) -lm
+SHCODECS_LIBS = $(SHCODECSDIR)/libshcodecs.la $(VPU4_LIBS) $(UIOMUX_LIBS) -lm
 
 # Test programs
 

@@ -5,7 +5,7 @@ includedir=@includedir@
 
 Name: shcodecs
 Description: A library for controlling SH-Mobile hardware codecs
-Requires:
+Requires: @shcodecs_pkgdeps@
 Version: @VERSION@
 Libs: -L${libdir} -lshcodecs
 Libs.private: @VPU4_DEC_LIBS@ @VPU4_ENC_LIBS@
