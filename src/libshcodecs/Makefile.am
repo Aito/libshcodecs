@@ -25,7 +25,8 @@ noinst_HEADERS = \
 	QuantMatrix.h \
 	Mpeg4vdec.h \
 	decoder_private.h \
-	sh7722_vpu.h
+	sh7722_vpu.h \
+        vpu_lock.h
 
 libshcodecs_la_SOURCES = \
 	m4driverif.c \

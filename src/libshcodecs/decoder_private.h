@@ -17,8 +17,16 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA  02110-1301 USA
  */
 
-#ifndef _SAMPLE_MAIN_H_
-#define _SAMPLE_MAIN_H_
+#ifndef __DECODER_PRIVATE_H__
+#define __DECODER_PRIVATE_H__
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#ifdef HAVE_UIOMUX
+#include <uiomux/uiomux.h>
+#endif
 
 #define		F_NONE		0
 #define		F_MPEG4		1
@@ -80,6 +88,10 @@ struct _SHCodecs_Decoder {
         int             use_physical;
 	int		frame_count;
 	int		last_cb_ret;
+
+#ifdef HAVE_UIOMUX
+        UIOMux         *uiomux;
+#endif
 };
 
 
@@ -132,4 +144,4 @@ shcodecs_decode (SHCodecs_Decoder * decoder, unsigned char * data, int len);
 int
 shcodecs_decode_finalize (SHCodecs_Decoder * decoder);
 
-#endif /* _SAMPLE_MAIN_H_ */
+#endif /* __DECODER_PRIVATE_H__ */

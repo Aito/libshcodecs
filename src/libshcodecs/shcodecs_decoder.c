@@ -38,6 +38,8 @@
 #include "m4driverif.h"
 #include "m4vsd_h263dec.h"
 
+#include "vpu_lock.h"
+
 /* #define DEBUG */
 
 #define MAX_BUF_SIZE (4 * 256 * 1024)
@@ -75,6 +77,9 @@ SHCodecs_Decoder *shcodecs_decoder_init(int width, int height, int format)
 	decoder->frame_count = 0;
 	decoder->last_cb_ret = 0;
 
+#ifdef HAVE_UIOMUX
+        decoder->uiomux = uiomux_open();
+#endif
 	/* Initialize m4iph */
 	m4iph_vpu_open();
 	m4iph_sdr_open();
@@ -105,6 +110,9 @@ void shcodecs_decoder_close(SHCodecs_Decoder * decoder)
 	if (decoder->si_sei)
 		free(decoder->si_sei);
 
+#ifdef HAVE_UIOMUX
+        uiomux_close (decoder->uiomux);
+#endif
 	/* m4driverif */
 	m4iph_sdr_close();
 	m4iph_vpu_close();
@@ -284,7 +292,7 @@ static int stream_init(SHCodecs_Decoder * decoder)
 		 * Although the VPU requires 16 bytes alignment, the
 		 * cache line size is 32 bytes on the SH4.
 		 */
-		pthread_mutex_lock(&vpu_mutex);
+                LOCK_VPU(decoder->uiomux);
 
 		/* luma frame */
 		decoder->si_flist[i].Y_fmemp =
@@ -303,7 +311,7 @@ static int stream_init(SHCodecs_Decoder * decoder)
 		CHECK_ALLOC(decoder->si_flist[i].C_fmemp,
 			    iContext_ReqWorkSize >> 1,
 			    "C component (kernel memory)", err1);
-		pthread_mutex_unlock(&vpu_mutex);
+                UNLOCK_VPU(decoder->uiomux);
 	}
 
 	if (decoder->si_type == F_H264) {
@@ -318,7 +326,7 @@ static int stream_init(SHCodecs_Decoder * decoder)
 	/* 16 bytes for each macroblocks */
 	dp_size = (iContext_ReqWorkSize * 16) >> 8;
 
-	pthread_mutex_lock(&vpu_mutex);
+        LOCK_VPU(decoder->uiomux);
 
 	decoder->si_dp_264 = m4iph_sdr_malloc(dp_size, 32);
 	CHECK_ALLOC(decoder->si_dp_264, dp_size, "data partition 1", err1);
@@ -336,7 +344,7 @@ static int stream_init(SHCodecs_Decoder * decoder)
 	CHECK_ALLOC(decoder->si_ff.C_fmemp, (iContext_ReqWorkSize >> 1),
 		    "C component of filtered frame", err1);
 
-	pthread_mutex_unlock(&vpu_mutex);
+        UNLOCK_VPU(decoder->uiomux);
 
 	return 0;
 
@@ -623,7 +631,7 @@ static int decode_frame(SHCodecs_Decoder * decoder)
 						 decoder->si_ilen + hosei, NULL);
 		}
 
-		/* XXX: lock VPU */
+                LOCK_VPU(decoder->uiomux);
 		ret = avcbd_decode_picture(decoder->si_ctxt, decoder->si_ilen * 8);
 #ifdef DEBUG
 		fprintf
@@ -631,7 +639,7 @@ static int decode_frame(SHCodecs_Decoder * decoder)
 #endif
 		ret = avcbd_get_last_frame_stat(decoder->si_ctxt, &decoder->last_frame_status);
 		counter = 1;
-		/* XXX: unlock VPU */
+                UNLOCK_VPU(decoder->uiomux);
 
 		if (decoder->last_frame_status.error_num < 0) {
 #ifdef DEBUG
