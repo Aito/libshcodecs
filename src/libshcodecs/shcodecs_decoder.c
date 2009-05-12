@@ -38,7 +38,7 @@
 #include "m4driverif.h"
 #include "m4vsd_h263dec.h"
 
-#include "vpu_lock.h"
+#include "vpu_mux.h"
 
 /* #define DEBUG */
 
@@ -79,10 +79,11 @@ SHCodecs_Decoder *shcodecs_decoder_init(int width, int height, int format)
 
 #ifdef HAVE_UIOMUX
         decoder->uiomux = uiomux_open();
-#endif
+#else
 	/* Initialize m4iph */
 	m4iph_vpu_open();
 	m4iph_sdr_open();
+#endif
 
 	/* Stream initialize */
 	if (stream_init(decoder)) {
@@ -112,10 +113,11 @@ void shcodecs_decoder_close(SHCodecs_Decoder * decoder)
 
 #ifdef HAVE_UIOMUX
         uiomux_close (decoder->uiomux);
-#endif
+#else
 	/* m4driverif */
 	m4iph_sdr_close();
 	m4iph_vpu_close();
+#endif
 
 	free(decoder);
 }
@@ -250,6 +252,10 @@ static int stream_init(SHCodecs_Decoder * decoder)
 	int iContext_ReqWorkSize;
 	size_t dp_size;
 
+#ifdef DEBUG
+        fprintf (stderr, "%s: IN\n", __func__);
+#endif
+
 	/* Get context size */
 	iContext_ReqWorkSize =
 	    avcbd_get_workarea_size(decoder->si_type ==
@@ -292,11 +298,12 @@ static int stream_init(SHCodecs_Decoder * decoder)
 		 * Although the VPU requires 16 bytes alignment, the
 		 * cache line size is 32 bytes on the SH4.
 		 */
-                LOCK_VPU(decoder->uiomux);
+                //VPU_LOCK(decoder->uiomux);
 
 		/* luma frame */
 		decoder->si_flist[i].Y_fmemp =
-		    m4iph_sdr_malloc(iContext_ReqWorkSize, 32);
+		    //m4iph_sdr_malloc(iContext_ReqWorkSize, 32);
+		    VPU_MALLOC(decoder->uiomux, iContext_ReqWorkSize, 32);
 
 		/* printf("%02d--Y=%X,",i,(int)decoder->si_flist[i].Y_fmemp); */
 		CHECK_ALLOC(decoder->si_flist[i].Y_fmemp,
@@ -306,12 +313,13 @@ static int stream_init(SHCodecs_Decoder * decoder)
 
 		/* chroma frame */
 		decoder->si_flist[i].C_fmemp
-		    = m4iph_sdr_malloc(iContext_ReqWorkSize >> 1, 32);
+		    //= m4iph_sdr_malloc(iContext_ReqWorkSize >> 1, 32);
+		    = VPU_MALLOC(decoder->uiomux, iContext_ReqWorkSize >> 1, 32);
 		/* printf("C=%X\n",(int)decoder->si_flist[i].C_fmemp); */
 		CHECK_ALLOC(decoder->si_flist[i].C_fmemp,
 			    iContext_ReqWorkSize >> 1,
 			    "C component (kernel memory)", err1);
-                UNLOCK_VPU(decoder->uiomux);
+                //VPU_UNLOCK(decoder->uiomux);
 	}
 
 	if (decoder->si_type == F_H264) {
@@ -326,25 +334,30 @@ static int stream_init(SHCodecs_Decoder * decoder)
 	/* 16 bytes for each macroblocks */
 	dp_size = (iContext_ReqWorkSize * 16) >> 8;
 
-        LOCK_VPU(decoder->uiomux);
+        //VPU_LOCK(decoder->uiomux);
 
-	decoder->si_dp_264 = m4iph_sdr_malloc(dp_size, 32);
+	decoder->si_dp_264 =
+                // m4iph_sdr_malloc(dp_size, 32);
+                VPU_MALLOC(decoder->uiomux, dp_size, 32);
 	CHECK_ALLOC(decoder->si_dp_264, dp_size, "data partition 1", err1);
 
-	decoder->si_dp_m4 = m4iph_sdr_malloc(dp_size, 32);
+	//decoder->si_dp_m4 = m4iph_sdr_malloc(dp_size, 32);
+	decoder->si_dp_m4 = VPU_MALLOC(decoder->uiomux, dp_size, 32);
 	CHECK_ALLOC(decoder->si_dp_m4, dp_size, "data partition 1", err1);
 
 	decoder->si_ff.Y_fmemp =
-	    m4iph_sdr_malloc(iContext_ReqWorkSize, 32);
+	    //m4iph_sdr_malloc(iContext_ReqWorkSize, 32);
+	    VPU_MALLOC(decoder->uiomux, iContext_ReqWorkSize, 32);
 	CHECK_ALLOC(decoder->si_ff.Y_fmemp, iContext_ReqWorkSize,
 		    "Y component of filtered frame", err1);
 
 	decoder->si_ff.C_fmemp =
-	    m4iph_sdr_malloc(iContext_ReqWorkSize >> 1, 32);
+	    //m4iph_sdr_malloc(iContext_ReqWorkSize >> 1, 32);
+	    VPU_MALLOC(decoder->uiomux, iContext_ReqWorkSize >> 1, 32);
 	CHECK_ALLOC(decoder->si_ff.C_fmemp, (iContext_ReqWorkSize >> 1),
 		    "C component of filtered frame", err1);
 
-        UNLOCK_VPU(decoder->uiomux);
+        //VPU_UNLOCK(decoder->uiomux);
 
 	return 0;
 
@@ -365,7 +378,12 @@ static int decoder_init(SHCodecs_Decoder * decoder)
 	long stream_mode;
 	int j;
 
-	pv_wk_buff = m4iph_sdr_malloc(WORK_BUF_SIZE, 32);
+#ifdef DEBUG
+        fprintf (stderr, "%s: IN\n", __func__);
+#endif
+
+	//pv_wk_buff = m4iph_sdr_malloc(WORK_BUF_SIZE, 32);
+	pv_wk_buff = VPU_MALLOC(decoder->uiomux, WORK_BUF_SIZE, 32);
 	/* printf("work buffer = %X\n",(int)pv_wk_buff); */
 	CHECK_ALLOC(pv_wk_buff, WORK_BUF_SIZE, "work buffer (kernel)",
 		    err1);
@@ -385,6 +403,8 @@ static int decoder_init(SHCodecs_Decoder * decoder)
 	vpu_init_option.m4iph_temporary_buff_address =
 	    (unsigned long) ALIGN_NBYTES(pv_wk_buff, 32);
 	vpu_init_option.m4iph_temporary_buff_size = WORK_BUF_SIZE;
+
+        global_uiomux = decoder->uiomux;
 	m4iph_vpu4_init(&vpu_init_option);
 
 	avcbd_start_decoding();
@@ -444,6 +464,10 @@ static int decoder_start(SHCodecs_Decoder * decoder)
 	M4VSD_MULTISTREAM_VARIABLES *var;
 	struct M4VSD_IMAGE_TABLE *image;
         int cb_ret=0;
+
+#ifdef DEBUG
+        fprintf (stderr, "%s: IN\n", __func__);
+#endif
 
 	/* decode */
 	var = (M4VSD_MULTISTREAM_VARIABLES *) decoder->si_ctxt;
@@ -550,6 +574,10 @@ static int decode_frame(SHCodecs_Decoder * decoder)
 	static long counter = 0;
         int input_len;
 
+#ifdef DEBUG
+        fprintf (stderr, "%s: IN\n", __func__);
+#endif
+
 	max_mb = decoder->si_mbnum;
 	do {
 		int curr_len = 0;
@@ -631,7 +659,8 @@ static int decode_frame(SHCodecs_Decoder * decoder)
 						 decoder->si_ilen + hosei, NULL);
 		}
 
-                LOCK_VPU(decoder->uiomux);
+                VPU_LOCK(decoder->uiomux);
+                global_uiomux = decoder->uiomux;
 		ret = avcbd_decode_picture(decoder->si_ctxt, decoder->si_ilen * 8);
 #ifdef DEBUG
 		fprintf
@@ -639,7 +668,7 @@ static int decode_frame(SHCodecs_Decoder * decoder)
 #endif
 		ret = avcbd_get_last_frame_stat(decoder->si_ctxt, &decoder->last_frame_status);
 		counter = 1;
-                UNLOCK_VPU(decoder->uiomux);
+                VPU_UNLOCK(decoder->uiomux);
 
 		if (decoder->last_frame_status.error_num < 0) {
 #ifdef DEBUG
@@ -752,6 +781,7 @@ static int extract_frame(SHCodecs_Decoder * decoder, long frame_index)
         } else {
 	        page = ymem & ~(pagesize - 1);
 	        ry = (unsigned long) ymem - page;
+                global_uiomux = decoder->uiomux;
 	        yf = m4iph_map_sdr_mem((void *) page,
 			       luma_size + (luma_size >> 1) + ry + 31);
 	        if (yf == NULL) {
@@ -770,6 +800,7 @@ static int extract_frame(SHCodecs_Decoder * decoder, long frame_index)
                                                      decoder->decoded_cb_data);
 	        }
 
+                global_uiomux = decoder->uiomux;
 	        m4iph_unmap_sdr_mem(yf, luma_size + (luma_size >> 1) + ry + 31);
         }
 

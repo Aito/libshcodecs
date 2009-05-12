@@ -26,10 +26,16 @@ noinst_HEADERS = \
 	Mpeg4vdec.h \
 	decoder_private.h \
 	sh7722_vpu.h \
-        vpu_lock.h
+        vpu_mux.h
+
+if HAVE_UIOMUX
+m4driverif_c = m4driverif-uiomux.c
+else
+m4driverif_c = m4driverif-uio.c
+endif
 
 libshcodecs_la_SOURCES = \
-	m4driverif.c \
+	$(m4driverif_c) \
 	shcodecs_decoder.c \
 	shcodecs_encoder.c \
 	encoder_common.c \

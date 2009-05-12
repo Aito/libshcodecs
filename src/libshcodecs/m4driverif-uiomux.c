@@ -40,104 +40,17 @@
 #include "avcbd_optionaldata.h"
 #include "avcbd_inner_typedef.h"
 
-static int fgets_with_openclose(char *fname, char *buf, size_t maxlen)
-{
-	FILE *fp;
+#include <uiomux/uiomux.h>
 
-	if ((fp = fopen(fname, "r")) != NULL) {
-		fgets(buf, maxlen, fp);
-		fclose(fp);
-		return strlen(buf);
-	} else {
-		return -1;
-	}
-}
-
-struct uio_device {
-	char *name;
-	char *path;
-	int fd;
-};
-
-#define MAXUIOIDS  100
-#define MAXNAMELEN 256
-
-static int locate_uio_device(char *name, struct uio_device *udp)
-{
-	char fname[MAXNAMELEN], buf[MAXNAMELEN];
-	int uio_id, i;
-
-	for (uio_id = 0; uio_id < MAXUIOIDS; uio_id++) {
-		sprintf(fname, "/sys/class/uio/uio%d/name", uio_id);
-		if (fgets_with_openclose(fname, buf, MAXNAMELEN) < 0)
-			continue;
-		if (strncmp(name, buf, strlen(name)) == 0)
-			break;
-	}
-
-	if (uio_id >= MAXUIOIDS)
-		return -1;
-
-	udp->name = strdup(buf);
-	udp->path = strdup(fname);
-	udp->path[strlen(udp->path) - 4] = '\0';
-
-	sprintf(buf, "/dev/uio%d", uio_id);
-	udp->fd = open(buf, O_RDWR | O_SYNC /*| O_NONBLOCK */ );
-
-	if (udp->fd < 0) {
-		perror(buf);
-		return -1;
-	}
-
-	return 0;
-}
-
-struct uio_map {
-	unsigned long address;
-	unsigned long size;
-	void *iomem;
-};
-
-static int setup_uio_map(struct uio_device *udp, int nr,
-			 struct uio_map *ump)
-{
-	char fname[MAXNAMELEN], buf[MAXNAMELEN];
-
-	sprintf(fname, "%s/maps/map%d/addr", udp->path, nr);
-	if (fgets_with_openclose(fname, buf, MAXNAMELEN) <= 0)
-		return -1;
-
-	ump->address = strtoul(buf, NULL, 0);
-
-	sprintf(fname, "%s/maps/map%d/size", udp->path, nr);
-	if (fgets_with_openclose(fname, buf, MAXNAMELEN) <= 0)
-		return -1;
-
-	ump->size = strtoul(buf, NULL, 0);
-
-	ump->iomem = mmap(0, ump->size,
-			  PROT_READ | PROT_WRITE, MAP_SHARED,
-			  udp->fd, nr * getpagesize());
-
-	if (ump->iomem == MAP_FAILED)
-		return -1;
-
-	return 0;
-}
-
-struct uio_device uio_dev;
-struct uio_map uio_mmio, uio_mem;
-
-/* extern void *global_context; */
 static int sleep_time;
-static unsigned long sdr_base, sdr_start, sdr_end;
-unsigned long _BM4VSD_BGN, _BM4VSD_END;
-pthread_mutex_t vpu_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-static void usr_memcpy32(unsigned long *dst, unsigned long *src,
-			 long size);
 int avcbd_idr_adjust(void *context);
+
+/*
+ * A globally managed UIOMux * handle.
+ * This must only be modified within VPU_LOCK()
+ */
+UIOMux * global_uiomux = NULL;
 
 /* User defined functions as specified by the Encoder/Decoder middleware
  * documents.
@@ -163,26 +76,10 @@ long m4iph_sleep(void)
 	long tm;
 
 	gettimeofday(&tv, &tz);
-#ifdef DISABLE_INT
-	while (m4iph_vpu4_status() != 0);
+
+        uiomux_sleep (global_uiomux, UIOMUX_SH_VPU);
 	m4iph_vpu4_int_handler();
-#else
-	/* Enable interrupt in UIO driver */
-	{
-		unsigned long enable = 1;
 
-		write(uio_dev.fd, &enable, sizeof(u_long));
-	}
-
-	/* Wait for an interrupt */
-	{
-		unsigned long n_pending;
-
-		read(uio_dev.fd, &n_pending, sizeof(u_long));
-	}
-
-	m4iph_vpu4_int_handler();
-#endif
 	gettimeofday(&tv1, &tz);
 	tm = (tv1.tv_usec - tv.tv_usec) / 1000;
 	if (tm < 0) {
@@ -196,41 +93,38 @@ long m4iph_sleep(void)
 void m4iph_restart(void)
 {
 	/* Do nothing for Linux */
+#ifdef DEBUG
+        fprintf (stderr, "%s: IN\n", __func__);
+#endif
 }
 
 int m4iph_vpu_open(void)
 {
-	int ret;
-
-	ret = locate_uio_device("VPU", &uio_dev);
-	if (ret < 0)
-		return ret;
-
+        /* We call uiomux_open() already from the initialization */
 #ifdef DEBUG
-	fprintf(stderr, "found matching UIO device at %s\n", uio_dev.path);
+        fprintf (stderr, "%s: IN\n", __func__);
 #endif
-
-	ret = setup_uio_map(&uio_dev, 0, &uio_mmio);
-	if (ret < 0)
-		return ret;
-
-	ret = setup_uio_map(&uio_dev, 1, &uio_mem);
-	if (ret < 0)
-		return ret;
-
 	return 0;
 }
 
 void m4iph_vpu_close(void)
 {
+#ifdef DEBUG
+        fprintf (stderr, "%s: IN\n", __func__);
+#endif
 }
 
 unsigned long m4iph_reg_table_read(unsigned long *addr,
 				   unsigned long *data, long nr_longs)
 {
-	unsigned long *reg_base = uio_mmio.iomem;
+	unsigned long *reg_base;
 	int k;
 
+#ifdef DEBUG
+        fprintf (stderr, "%s: IN\n", __func__);
+#endif
+
+        uiomux_get_mmio (global_uiomux, UIOMUX_SH_VPU, NULL, NULL, (void *)&reg_base);
 	reg_base += ((unsigned long) addr - VP4_CTRL) / 4;
 
 	for (k = 0; k < nr_longs; k++)
@@ -247,9 +141,14 @@ unsigned long m4iph_reg_table_read(unsigned long *addr,
 void m4iph_reg_table_write(unsigned long *addr, unsigned long *data,
 			   long nr_longs)
 {
-	unsigned long *reg_base = uio_mmio.iomem;
+	unsigned long *reg_base;
 	int k;
 
+#ifdef DEBUG
+        fprintf (stderr, "%s: IN\n", __func__);
+#endif
+
+        uiomux_get_mmio (global_uiomux, UIOMUX_SH_VPU, NULL, NULL, (void *)&reg_base);
 	reg_base += ((unsigned long) addr - VP4_CTRL) / 4;
 
 	for (k = 0; k < nr_longs; k++)
@@ -267,28 +166,44 @@ void m4iph_reg_table_write(unsigned long *addr, unsigned long *data,
 
 int m4iph_sdr_open(void)
 {
-	sdr_base = sdr_start = uio_mem.address;
-	sdr_end = sdr_base + uio_mem.size;
+#ifdef DEBUG
+        fprintf (stderr, "%s: IN\n", __func__);
+#endif
 	return 0;
 }
 
 void m4iph_sdr_close(void)
 {
-	sdr_base = sdr_start = sdr_end = 0;
+#ifdef DEBUG
+        fprintf (stderr, "%s: IN\n", __func__);
+#endif
 }
 
 void *m4iph_map_sdr_mem(void *address, int size)
 {
-	return uio_mem.iomem + ((unsigned long) address - uio_mem.address);
+        unsigned long mem_base;
+        void * iomem;
+
+#ifdef DEBUG
+        fprintf (stderr, "%s: IN\n", __func__);
+#endif
+	uiomux_get_mem (global_uiomux, UIOMUX_SH_VPU, &mem_base, NULL, &iomem);
+	return iomem + ((unsigned long) address - mem_base);
 }
 
 int m4iph_unmap_sdr_mem(void *address, int size)
 {
+#ifdef DEBUG
+        fprintf (stderr, "%s: IN\n", __func__);
+#endif
 	return 0;
 }
 
 int m4iph_sync_sdr_mem(void *address, int size)
 {
+#ifdef DEBUG
+        fprintf (stderr, "%s: IN\n", __func__);
+#endif
 	return 0;
 }
 
@@ -297,11 +212,18 @@ unsigned long m4iph_sdr_read(unsigned char *address, unsigned char *buffer,
 {
 	unsigned char *buf;
 	unsigned long addr;
+        unsigned long mem_base, mem_size;
 	int roundoff;
 	int pagesize = getpagesize();
 
-	if ((unsigned long) address + count >= sdr_end
-	    || (unsigned long) address < sdr_start) {
+#ifdef DEBUG
+        fprintf (stderr, "%s: IN\n", __func__);
+#endif
+
+	uiomux_get_mem (global_uiomux, UIOMUX_SH_VPU, &mem_base, &mem_size, NULL);
+
+	if ((unsigned long) address + count >= (mem_base+mem_size)
+	    || (unsigned long) address < mem_base) {
 		fprintf(stderr, "%s: Invalid read from SDR memory. ",
 			__FUNCTION__);
 		fprintf(stderr, "address = %p, count = %ld\n", address,
@@ -331,11 +253,18 @@ void m4iph_sdr_write(unsigned char *address, unsigned char *buffer,
 {
 	unsigned char *buf;
 	unsigned long addr;
+        unsigned long mem_base, mem_size;
 	int roundoff;
 	int pagesize = getpagesize();
 
-	if ((unsigned long) address + count >= sdr_end
-	    || (unsigned long) address < sdr_start) {
+#ifdef DEBUG
+        fprintf (stderr, "%s: IN\n", __func__);
+#endif
+
+	uiomux_get_mem (global_uiomux, UIOMUX_SH_VPU, &mem_base, &mem_size, NULL);
+
+	if ((unsigned long) address + count >= (mem_base+mem_size)
+	    || (unsigned long) address < mem_base) {
 		fprintf(stderr, "%s: Invalid write to SDR memory. ",
 			__FUNCTION__);
 		fprintf(stderr, "address = %p, count = %ld\n", address,
@@ -366,6 +295,10 @@ void m4iph_sdr_memset(unsigned long *address, unsigned long data,
 	int roundoff;
 	int pagesize = getpagesize();
 
+#ifdef DEBUG
+        fprintf (stderr, "%s: IN\n", __func__);
+#endif
+
 	addr = (unsigned long) address & ~(pagesize - 1);
 	roundoff = (unsigned long) address - addr;
 	buf =
@@ -388,23 +321,22 @@ void *m4iph_sdr_malloc(unsigned long count, int align)
 	unsigned long ret;
 	int size;
 
-	ret = ((sdr_base + (align - 1)) & ~(align - 1));
-	size = ret - sdr_base + count;
+#ifdef DEBUG
+        fprintf (stderr, "%s: IN\n", __func__);
 
-	if (sdr_base + size >= sdr_end) {
-		fprintf(stderr, "%s: Allocation of size %ld failed\n",
-			__FUNCTION__, count);
-		fprintf(stderr, "sdr_base = %08lx, sdr_end = %08lx\n", sdr_base,
-		       sdr_end);
-		return NULL;
-	}
-	sdr_base += size;
-	return (void *) ret;
+        fprintf (stderr, "%s: global_uiomux %x\n", global_uiomux);
+#endif
+
+        return uiomux_malloc (global_uiomux, UIOMUX_SH_VPU, count, align);
 }
 
 void m4iph_sdr_free(void *address, unsigned long count)
 {
-	/* fprintf(stderr, "%s() is not required\n", __FUNCTION__); */
+#ifdef DEBUG
+        fprintf (stderr, "%s: IN\n", __func__);
+#endif
+
+        uiomux_free (global_uiomux, UIOMUX_SH_VPU, address, count);
 }
 
 #if 0

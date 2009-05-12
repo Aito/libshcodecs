@@ -91,6 +91,8 @@ struct _SHCodecs_Decoder {
 
 #ifdef HAVE_UIOMUX
         UIOMux         *uiomux;
+#else
+        int            *uiomux; /* dummy */
 #endif
 };
 
