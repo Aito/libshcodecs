@@ -25,7 +25,7 @@ extern UIOMux * global_uiomux;
 #define VPU_UNLOCK(ux) pthread_mutex_unlock(&vpu_mutex);
 
 #define VPU_MALLOC(ux,size,align) m4iph_sdr_malloc(size, align)
-#define VPU_FREE(ux,address,size) m4iph_free(address, size)
+#define VPU_FREE(ux,address,size) m4iph_sdr_free(address, size)
 
 #endif
 

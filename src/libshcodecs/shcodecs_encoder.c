@@ -31,6 +31,13 @@
 
 #include "encoder_private.h"
 
+#include "vpu_mux.h"
+
+#define NUM_LDEC_FRAMES 3
+
+/* #define DEBUG */
+
+>>>>>>> add UIOMux memory management to encoder:src/libshcodecs/shcodecs_encoder.c
 int vpu4_clock_on(void);
 int vpu4_clock_off(void);
 
@@ -109,7 +116,7 @@ set_VPU4_param(SHCodecs_Encoder * encoder)
 
 	/* Temporary Buffer */
 	buf_size = stream_buff_size (encoder);
-	tb = (unsigned long)m4iph_sdr_malloc(buf_size, 32);
+	tb = (unsigned long)VPU_MALLOC(encoder->uiomux, buf_size, 32);
 	vpu4_param->m4iph_temporary_buff_address = tb;
 	vpu4_param->m4iph_temporary_buff_size = buf_size;
 }
@@ -159,20 +166,25 @@ void shcodecs_encoder_close(SHCodecs_Encoder * encoder)
 	/* Input buffers */
 	for (i=0; i<NUM_INPUT_FRAMES; i++) {
 		if (encoder->input_frames[i].Y_fmemp)
-			m4iph_sdr_free(encoder->input_frames[i].Y_fmemp, width_height);
+			VPU_FREE(encoder->uiomux, encoder->input_frames[i].Y_fmemp, width_height);
 	}
 
 	/* Local decode images */
 	for (i=0; i<NUM_LDEC_FRAMES; i++) {
 		if (encoder->local_frames[i].Y_fmemp)
-			m4iph_sdr_free(encoder->local_frames[i].Y_fmemp, width_height);
+			VPU_FREE(encoder->uiomux, encoder->local_frames[i].Y_fmemp, width_height);
 	}
 
 	buf_size = stream_buff_size (encoder);
-	m4iph_sdr_free((unsigned char *)encoder->vpu4_param.m4iph_temporary_buff_address, buf_size);
+	VPU_FREE(encoder->uiomux, (unsigned char *)encoder->vpu4_param.m4iph_temporary_buff_address,
+		       buf_size);
 
+#ifdef HAVE_UIOMUX
+        uiomux_close (encoder->uiomux);
+#else
 	m4iph_sdr_close();
 	m4iph_vpu_close();
+#endif
 
 	if (encoder->format == SHCodecs_Format_H264) {
 		h264_encode_close(encoder);
@@ -206,8 +218,13 @@ SHCodecs_Encoder *shcodecs_encoder_init(int width, int height,
 	if (encoder == NULL)
 		return NULL;
 
+#ifdef HAVE_UIOMUX
+        encoder->uiomux = uiomux_open();
+#else
+	/* Initialize m4iph */
 	m4iph_vpu_open();
 	m4iph_sdr_open();
+#endif
 
 	set_dimensions (encoder, width, height);
 	encoder->format = format;
@@ -233,6 +250,9 @@ SHCodecs_Encoder *shcodecs_encoder_init(int width, int height,
 	set_VPU4_param(encoder);
 
 	/* Initialize VPU */
+#ifdef HAVE_UIOMUX
+        global_uiomux = encoder->uiomux;
+#endif
 	return_code = m4iph_vpu4_init(&(encoder->vpu4_param));
 	if (return_code < 0) {
 		if (return_code == -1) {
@@ -253,7 +273,7 @@ SHCodecs_Encoder *shcodecs_encoder_init(int width, int height,
 
 	/* Input buffers */
 	for (i=0; i<NUM_INPUT_FRAMES; i++) {
-		pY = m4iph_sdr_malloc(width_height, 32);
+		pY = VPU_MALLOC(encoder->uiomux, width_height, 32);
 		if (!pY) goto err;
 		encoder->input_frames[i].Y_fmemp = pY;
 		encoder->input_frames[i].C_fmemp = pY + encoder->y_bytes;
@@ -262,7 +282,7 @@ SHCodecs_Encoder *shcodecs_encoder_init(int width, int height,
 	/* Local decode images. This is the number of reference frames plus one
 	   for the locally decoded output */
 	for (i=0; i<NUM_LDEC_FRAMES; i++) {
-		pY = m4iph_sdr_malloc(width_height, 32);
+		pY = VPU_MALLOC(encoder->uiomux, width_height, 32);
 		if (!pY) goto err;
 		encoder->local_frames[i].Y_fmemp = pY;
 		encoder->local_frames[i].C_fmemp = pY + encoder->y_bytes;
@@ -353,6 +373,9 @@ shcodecs_encoder_input_provide (SHCodecs_Encoder * encoder,
 				unsigned char * y_input, unsigned char * c_input)
 {
 	/* Write image data to kernel memory for VPU */
+#ifdef HAVE_UIOMUX
+        global_uiomux = encoder->uiomux;
+#endif
 	m4iph_sdr_write(encoder->addr_y, y_input, encoder->y_bytes);
 	m4iph_sdr_write(encoder->addr_c, c_input, encoder->y_bytes / 2);
 

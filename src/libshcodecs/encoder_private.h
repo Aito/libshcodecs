@@ -20,7 +20,15 @@
 #ifndef __ENCODER_PRIVATE_H__
 #define __ENCODER_PRIVATE_H__
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <shcodecs/shcodecs_common.h>
+
+#ifdef HAVE_UIOMUX
+#include <uiomux/uiomux.h>
+#endif
 
 #include "avcbe.h"
 #include "avcbe_inner.h"
@@ -152,6 +160,11 @@ struct _SHCodecs_Encoder {
 	long output_filler_enable;	/* enable flag to put Filler Data for CPB Buffer Over */
 	long output_filler_data;	/* for FillerData(CPB  Buffer) */
 
+#ifdef HAVE_UIOMUX
+        UIOMux         *uiomux;
+#else
+        int            *uiomux; /* dummy */
+#endif
 };
 
 /* Internal prototypes of functions using SHCodecs_Encoder */
