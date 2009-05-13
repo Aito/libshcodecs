@@ -404,7 +404,9 @@ static int decoder_init(SHCodecs_Decoder * decoder)
 	    (unsigned long) ALIGN_NBYTES(pv_wk_buff, 32);
 	vpu_init_option.m4iph_temporary_buff_size = WORK_BUF_SIZE;
 
+#ifdef HAVE_UIOMUX
         global_uiomux = decoder->uiomux;
+#endif
 	m4iph_vpu4_init(&vpu_init_option);
 
 	avcbd_start_decoding();
@@ -660,7 +662,9 @@ static int decode_frame(SHCodecs_Decoder * decoder)
 		}
 
                 VPU_LOCK(decoder->uiomux);
+#ifdef HAVE_UIOMUX
                 global_uiomux = decoder->uiomux;
+#endif
 		ret = avcbd_decode_picture(decoder->si_ctxt, decoder->si_ilen * 8);
 #ifdef DEBUG
 		fprintf
@@ -781,7 +785,9 @@ static int extract_frame(SHCodecs_Decoder * decoder, long frame_index)
         } else {
 	        page = ymem & ~(pagesize - 1);
 	        ry = (unsigned long) ymem - page;
+#ifdef HAVE_UIOMUX
                 global_uiomux = decoder->uiomux;
+#endif
 	        yf = m4iph_map_sdr_mem((void *) page,
 			       luma_size + (luma_size >> 1) + ry + 31);
 	        if (yf == NULL) {
@@ -800,7 +806,9 @@ static int extract_frame(SHCodecs_Decoder * decoder, long frame_index)
                                                      decoder->decoded_cb_data);
 	        }
 
+#ifdef HAVE_UIOMUX
                 global_uiomux = decoder->uiomux;
+#endif
 	        m4iph_unmap_sdr_mem(yf, luma_size + (luma_size >> 1) + ry + 31);
         }
 
