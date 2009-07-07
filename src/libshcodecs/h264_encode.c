@@ -33,6 +33,8 @@
 
 #include "encoder_private.h"
 
+#include "vpu_mux.h"
+
 #define OUTPUT_ERROR_MSGS
 //#define OUTPUT_INFO_MSGS
 //#define OUTPUT_STREAM_INFO
@@ -139,12 +141,16 @@ h264_encode_init (SHCodecs_Encoder *enc, long stream_type)
 	if (!enc->sei_buf_info.buff_top)
 		goto err;
 
+        VPU_LOCK(enc->uiomux);
 	avcbe_start_encoding();
+        VPU_UNLOCK(enc->uiomux);
 
 	/* Set default values for the parameters */
+        VPU_LOCK(enc->uiomux);
 	rc = avcbe_set_default_param(stream_type, AVCBE_RATE_NORMAL,
 				    &(enc->encoding_property),
 				    (void *)&(enc->other_options_h264));
+        VPU_UNLOCK(enc->uiomux);
 	if (rc != 0)
 		return vpu_err(enc, __func__, __LINE__, rc);
 
@@ -171,18 +177,22 @@ h264_encode_deferred_init(SHCodecs_Encoder *enc, long stream_type)
 				 options->avcbe_ratecontrol_cpb_buffer_unit_size),
 				90);
 	}
+        VPU_LOCK(enc->uiomux);
 	rc = avcbe_init_encode(&(enc->encoding_property),
 				&(enc->paramR),
 				options,
 				(avcbe_buf_continue_userproc_ptr) NULL,
 				&enc->work_area, NULL, &enc->stream_info);
+        VPU_UNLOCK(enc->uiomux);
 	if (rc < 0)
 		return vpu_err(enc, __func__, __LINE__, rc);
 
+        VPU_LOCK(enc->uiomux);
 	rc = avcbe_init_memory(enc->stream_info,
 				enc->ref_frame_num,
 				(enc->ref_frame_num+1), enc->local_frames,
 				ROUND_UP_16(enc->width), ROUND_UP_16(enc->height));
+        VPU_UNLOCK(enc->uiomux);
 	if (rc != 0)
 		return vpu_err(enc, __func__, __LINE__, rc);
 
@@ -240,11 +250,13 @@ h264_output_SEI_parameters(SHCodecs_Encoder *enc)
 	for (i=0; i<num_sei_msgs; i++)
 	{
 		if (sei_msg[i] == AVCBE_ON) {
+                        VPU_LOCK(enc->uiomux);
 			length = avcbe_put_SEI_parameters(
 						enc->stream_info,
 						sei_arg1[i],
 						sei_arg2[i],
 						&(enc->sei_buf_info));
+                        VPU_UNLOCK(enc->uiomux);
 
 			if (length > 0) {
 				cb_ret = output_data(enc, SEI,
@@ -270,7 +282,9 @@ setup_veu_params(SHCodecs_Encoder *enc)
 	vui_param = &enc->other_API_enc_param.vui_main_param;
 
 	/* Get the size of CPB-buffer to set 'cpb_size_scale' of HRD */
+        VPU_LOCK(enc->uiomux);
 	length = avcbe_get_cpb_buffer_size(enc->stream_info);
+        VPU_UNLOCK(enc->uiomux);
 	if (length <= 0)
 		return vpu_err(enc, __func__, __LINE__, length);
 
@@ -280,7 +294,9 @@ setup_veu_params(SHCodecs_Encoder *enc)
 		vui_param->avcbe_vcl_hrd_param.avcbe_cpb_size_scale = length;
 	}
 
+        VPU_LOCK(enc->uiomux);
 	rc = avcbe_set_VUI_parameters(enc->stream_info, vui_param);
+        VPU_UNLOCK(enc->uiomux);
 	if (rc != 0)
 		return vpu_err(enc, __func__, __LINE__, rc);
 
@@ -294,31 +310,38 @@ h264_encode_sps_pps(SHCodecs_Encoder *enc, avcbe_slice_stat *slice_stat, long fr
 	long rc;
 
 	/* SPS data */
+        VPU_LOCK(enc->uiomux);
 	rc = avcbe_encode_picture(
 				enc->stream_info, frm,
 				AVCBE_ANY_VOP,
 				AVCBE_OUTPUT_SPS,
 				&enc->sps_buf_info,
 				NULL);
+        VPU_UNLOCK(enc->uiomux);
 	if (rc != AVCBE_SPS_OUTPUTTED)
 		return vpu_err(enc, __func__, __LINE__, rc);
 
 	/* Get the size */
+        VPU_LOCK(enc->uiomux);
 	avcbe_get_last_slice_stat(enc->stream_info, slice_stat);
-
+        VPU_UNLOCK(enc->uiomux);
 
 	/* PPS data */
+        VPU_LOCK(enc->uiomux);
 	rc = avcbe_encode_picture(
 				enc->stream_info, frm,
 				AVCBE_ANY_VOP,
 				AVCBE_OUTPUT_PPS,
 				&enc->pps_buf_info,
 				NULL);
+        VPU_UNLOCK(enc->uiomux);
 	if (rc != AVCBE_PPS_OUTPUTTED)
 		return vpu_err(enc, __func__, __LINE__, rc);
 
 	/* Get the size */
+        VPU_LOCK(enc->uiomux);
 	avcbe_get_last_slice_stat(enc->stream_info, slice_stat);
+        VPU_LOCK(enc->uiomux);
 
 	return 0;
 }
@@ -345,8 +368,10 @@ h264_encode_frame(SHCodecs_Encoder *enc, unsigned char *py, unsigned char *pc)
 	extra_stream_buff = &enc->aud_buf_info;
 
 	/* Specify the input frame address */
+        VPU_LOCK(enc->uiomux);
 	rc = avcbe_set_image_pointer(enc->stream_info,
 				    &input_buf, enc->ldec, enc->ref1, 0);
+        VPU_UNLOCK(enc->uiomux);
 	if (rc != 0)
 		return vpu_err(enc, __func__, __LINE__, rc);
 
@@ -377,11 +402,13 @@ h264_encode_frame(SHCodecs_Encoder *enc, unsigned char *py, unsigned char *pc)
 		gettimeofday(&tv, NULL);
 
 		/* Encode the frame */
+                VPU_LOCK(enc->uiomux);
 		enc_rc = avcbe_encode_picture(enc->stream_info, enc->frm,
 					 AVCBE_ANY_VOP,
 					 AVCBE_OUTPUT_SLICE,
 					 &enc->stream_buff_info,
 					 extra_stream_buff);
+                VPU_UNLOCK(enc->uiomux);
 		gettimeofday(&tv1, NULL);
 		tm = (tv1.tv_usec - tv.tv_usec) / 1000;
 		if (tm < 0)
@@ -399,7 +426,9 @@ h264_encode_frame(SHCodecs_Encoder *enc, unsigned char *py, unsigned char *pc)
 		    || (enc_rc == AVCBE_ENCODE_SUCCESS)) {
 
 			/* Get the information about the encoded slice */
+                        VPU_LOCK(enc->uiomux);
 			avcbe_get_last_slice_stat(enc->stream_info, &slice_stat);
+                        VPU_UNLOCK(enc->uiomux);
 			nal_size = (slice_stat.avcbe_encoded_slice_bits + 7) / 8;
 			pic_type = slice_stat.avcbe_encoded_pic_type;
 
@@ -555,7 +584,9 @@ h264_encode_run (SHCodecs_Encoder *enc, long stream_type)
 		return rc;
 
 	/* End encoding */
+        VPU_LOCK(enc->uiomux);
 	length = avcbe_put_end_code(enc->stream_info, &enc->end_code_buff_info, AVCBE_END_OF_STRM);
+        VPU_UNLOCK(enc->uiomux);
 	if (length <= 0)
 		return vpu_err(enc, __func__, __LINE__, length);
 	rc = output_data(enc, END, enc->end_code_buff_info.buff_top, length);
@@ -563,8 +594,10 @@ h264_encode_run (SHCodecs_Encoder *enc, long stream_type)
 		return rc;
 
 	if (enc->output_filler_enable == 1) {
+                VPU_LOCK(enc->uiomux);
 		rc = avcbe_put_filler_data(&enc->stream_buff_info,
 				enc->other_options_h264.avcbe_put_start_code, 2);
+                VPU_UNLOCK(enc->uiomux);
 		// TODO shouldn't this be output?
 	}
 
