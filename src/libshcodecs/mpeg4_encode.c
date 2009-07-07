@@ -36,6 +36,8 @@
 
 #include "encoder_private.h"
 
+#include "vpu_mux.h"
+
 #define OUTPUT_ERROR_MSGS
 
 #define USE_BVOP
@@ -166,12 +168,16 @@ mpeg4_encode_init (SHCodecs_Encoder *enc, long stream_type)
 
 	mpeg4_encode_init_other_options(enc);
 
+        VPU_LOCK(enc->uiomux);
 	avcbe_start_encoding();
+        VPU_UNLOCK(enc->uiomux);
 
 	/* Set default values for the parameters */
+        VPU_LOCK(enc->uiomux);
 	rc = avcbe_set_default_param(stream_type, AVCBE_RATE_NORMAL,
 				    &(enc->encoding_property),
 				    (void *)&(enc->other_options_mpeg4));
+        VPU_UNLOCK(enc->uiomux);
 	if (rc != 0)
 		return vpu_err(enc, __func__, __LINE__, rc);
 
@@ -185,12 +191,14 @@ mpeg4_encode_deferred_init(SHCodecs_Encoder *enc, long stream_type)
 	unsigned long nrefframe = 1;
 
 	/* Initialize VPU parameters & local frame memory */
+        VPU_LOCK(enc->uiomux);
 	rc = avcbe_init_encode(&(enc->encoding_property),
 					&(enc->paramR),
 					&(enc->other_options_mpeg4),
 					(avcbe_buf_continue_userproc_ptr) NULL,
 					&enc->work_area, NULL,
 					&enc->stream_info);
+        VPU_UNLOCK(enc->uiomux);
 	if (rc != 0)
 		return vpu_err(enc, __func__, __LINE__, rc);
 
@@ -208,10 +216,12 @@ mpeg4_encode_deferred_init(SHCodecs_Encoder *enc, long stream_type)
 //TODO	m4vse_output_local_image_of_b_vop = AVCBE_ON;
 #endif
 
+        VPU_LOCK(enc->uiomux);
 	rc = avcbe_init_memory(enc->stream_info,
 				nrefframe,
 				(nrefframe+1), enc->local_frames,
 				ROUND_UP_16(enc->width), ROUND_UP_16(enc->height));
+        VPU_UNLOCK(enc->uiomux);
 	if (rc != 0)
 		return vpu_err(enc, __func__, __LINE__, rc);
 
@@ -293,18 +303,22 @@ mpeg4_encode_frame (SHCodecs_Encoder *enc, long stream_type,
 	}
 
 	/* Specify the input frame address */
+        VPU_LOCK(enc->uiomux);
 	rc = avcbe_set_image_pointer(enc->stream_info,
 				    &input_buf, enc->ldec, enc->ref1, 0);
+        VPU_UNLOCK(enc->uiomux);
 	if (rc != 0)
 		return vpu_err(enc, __func__, __LINE__, rc);
 
 	gettimeofday(&tv, NULL);
 
 	/* Encode the frame */
+        VPU_LOCK(enc->uiomux);
 	rc = avcbe_encode_picture(enc->stream_info, enc->frm,
 				 AVCBE_ANY_VOP,
 				 AVCBE_OUTPUT_NONE,
 				 &enc->stream_buff_info, NULL);
+        VPU_UNLOCK(enc->uiomux);
 
 	gettimeofday(&tv1, NULL);
 	tm = (tv1.tv_usec - tv.tv_usec) / 1000;
@@ -333,7 +347,9 @@ mpeg4_encode_frame (SHCodecs_Encoder *enc, long stream_type,
 			}
 		}
 
+                VPU_LOCK(enc->uiomux);
 		avcbe_get_last_frame_stat(enc->stream_info, &frame_stat);
+                VPU_UNLOCK(enc->uiomux);
 		unit_size = (frame_stat.avcbe_frame_n_bits + 7) / 8;
 		pic_type = frame_stat.avcbe_frame_type;
 
@@ -392,9 +408,10 @@ mpeg4_encode_picture (SHCodecs_Encoder *enc,
 #ifdef USE_BVOP
 		/* Find an input buffer that isn't in use */
 		if (enc->other_options_mpeg4.avcbe_b_vop_num > 0) {
-
+                        VPU_LOCK(enc->uiomux);
 			rc = avcbe_get_buffer_check(enc->stream_info,
 						   &frame_check_array[0]);
+                        VPU_UNLOCK(enc->uiomux);
 			if (rc < 0)
 				return vpu_err(enc, __func__, __LINE__, rc);
 
@@ -445,7 +462,9 @@ mpeg4_encode_run (SHCodecs_Encoder *enc, long stream_type)
 		return vpu_err(enc, __func__, __LINE__, rc);
 
 	/* End encoding */
+        VPU_LOCK(enc->uiomux);
 	length = avcbe_put_end_code(enc->stream_info, &enc->end_code_buff_info, AVCBE_VOSE);
+        VPU_UNLOCK(enc->uiomux);
 	if (length <= 0)
 		return vpu_err(enc, __func__, __LINE__, length);
 
