@@ -33,6 +33,8 @@
 #include "encoder_common.h"		/* User Application Sample Header */
 #include "m4driverif.h"
 
+#include "vpu_mux.h"
+
 /*----------------------------------------------------------------------------------------------*/
 /* Example of function created by the user, which is called when VPU4 reads register. */
 /* (This function is common to MPEG-4&H.264 Encoder for VPU4.)  */

@@ -250,10 +250,10 @@ SHCodecs_Encoder *shcodecs_encoder_init(int width, int height,
 	set_VPU4_param(encoder);
 
 	/* Initialize VPU */
-#ifdef HAVE_UIOMUX
+        VPU_LOCK(encoder->uiomux);
         global_uiomux = encoder->uiomux;
-#endif
 	return_code = m4iph_vpu4_init(&(encoder->vpu4_param));
+        VPU_UNLOCK(encoder->uiomux);
 	if (return_code < 0) {
 		if (return_code == -1) {
 			fprintf(stderr,

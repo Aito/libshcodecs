@@ -11,7 +11,7 @@
 
 extern UIOMux * global_uiomux;
 
-#define VPU_LOCK(ux) uiomux_lock (ux, UIOMUX_SH_VPU); global_uiomux = ux;
+#define VPU_LOCK(ux) {uiomux_lock (ux, UIOMUX_SH_VPU); global_uiomux = ux;}
 #define VPU_UNLOCK(ux) uiomux_unlock (ux, UIOMUX_SH_VPU);
 
 #define VPU_MALLOC(ux,size,align) uiomux_malloc (ux, UIOMUX_SH_VPU, size, align)

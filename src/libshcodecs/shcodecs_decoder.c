@@ -298,11 +298,9 @@ static int stream_init(SHCodecs_Decoder * decoder)
 		 * Although the VPU requires 16 bytes alignment, the
 		 * cache line size is 32 bytes on the SH4.
 		 */
-                //VPU_LOCK(decoder->uiomux);
 
 		/* luma frame */
 		decoder->si_flist[i].Y_fmemp =
-		    //m4iph_sdr_malloc(iContext_ReqWorkSize, 32);
 		    VPU_MALLOC(decoder->uiomux, iContext_ReqWorkSize, 32);
 
 		/* printf("%02d--Y=%X,",i,(int)decoder->si_flist[i].Y_fmemp); */
@@ -313,13 +311,11 @@ static int stream_init(SHCodecs_Decoder * decoder)
 
 		/* chroma frame */
 		decoder->si_flist[i].C_fmemp
-		    //= m4iph_sdr_malloc(iContext_ReqWorkSize >> 1, 32);
 		    = VPU_MALLOC(decoder->uiomux, iContext_ReqWorkSize >> 1, 32);
 		/* printf("C=%X\n",(int)decoder->si_flist[i].C_fmemp); */
 		CHECK_ALLOC(decoder->si_flist[i].C_fmemp,
 			    iContext_ReqWorkSize >> 1,
 			    "C component (kernel memory)", err1);
-                //VPU_UNLOCK(decoder->uiomux);
 	}
 
 	if (decoder->si_type == F_H264) {
@@ -334,30 +330,22 @@ static int stream_init(SHCodecs_Decoder * decoder)
 	/* 16 bytes for each macroblocks */
 	dp_size = (iContext_ReqWorkSize * 16) >> 8;
 
-        //VPU_LOCK(decoder->uiomux);
-
 	decoder->si_dp_264 =
-                // m4iph_sdr_malloc(dp_size, 32);
                 VPU_MALLOC(decoder->uiomux, dp_size, 32);
 	CHECK_ALLOC(decoder->si_dp_264, dp_size, "data partition 1", err1);
 
-	//decoder->si_dp_m4 = m4iph_sdr_malloc(dp_size, 32);
 	decoder->si_dp_m4 = VPU_MALLOC(decoder->uiomux, dp_size, 32);
 	CHECK_ALLOC(decoder->si_dp_m4, dp_size, "data partition 1", err1);
 
 	decoder->si_ff.Y_fmemp =
-	    //m4iph_sdr_malloc(iContext_ReqWorkSize, 32);
 	    VPU_MALLOC(decoder->uiomux, iContext_ReqWorkSize, 32);
 	CHECK_ALLOC(decoder->si_ff.Y_fmemp, iContext_ReqWorkSize,
 		    "Y component of filtered frame", err1);
 
 	decoder->si_ff.C_fmemp =
-	    //m4iph_sdr_malloc(iContext_ReqWorkSize >> 1, 32);
 	    VPU_MALLOC(decoder->uiomux, iContext_ReqWorkSize >> 1, 32);
 	CHECK_ALLOC(decoder->si_ff.C_fmemp, (iContext_ReqWorkSize >> 1),
 		    "C component of filtered frame", err1);
-
-        //VPU_UNLOCK(decoder->uiomux);
 
 	return 0;
 
@@ -382,7 +370,6 @@ static int decoder_init(SHCodecs_Decoder * decoder)
         fprintf (stderr, "%s: IN\n", __func__);
 #endif
 
-	//pv_wk_buff = m4iph_sdr_malloc(WORK_BUF_SIZE, 32);
 	pv_wk_buff = VPU_MALLOC(decoder->uiomux, WORK_BUF_SIZE, 32);
 	/* printf("work buffer = %X\n",(int)pv_wk_buff); */
 	CHECK_ALLOC(pv_wk_buff, WORK_BUF_SIZE, "work buffer (kernel)",
@@ -405,9 +392,13 @@ static int decoder_init(SHCodecs_Decoder * decoder)
 	vpu_init_option.m4iph_temporary_buff_size = WORK_BUF_SIZE;
 
 #ifdef HAVE_UIOMUX
+        uiomux_lock (decoder->uiomux, UIOMUX_SH_VPU);
         global_uiomux = decoder->uiomux;
 #endif
 	m4iph_vpu4_init(&vpu_init_option);
+#ifdef HAVE_UIOMUX
+        uiomux_unlock (decoder->uiomux, UIOMUX_SH_VPU);
+#endif
 
 	avcbd_start_decoding();
 	stream_mode = (decoder->si_type == F_H264) ? AVCBD_TYPE_AVC : AVCBD_TYPE_MPEG4;
@@ -786,10 +777,14 @@ static int extract_frame(SHCodecs_Decoder * decoder, long frame_index)
 	        page = ymem & ~(pagesize - 1);
 	        ry = (unsigned long) ymem - page;
 #ifdef HAVE_UIOMUX
+                uiomux_lock (decoder->uiomux, UIOMUX_SH_VPU);
                 global_uiomux = decoder->uiomux;
 #endif
 	        yf = m4iph_map_sdr_mem((void *) page,
-			       luma_size + (luma_size >> 1) + ry + 31);
+                                       luma_size + (luma_size >> 1) + ry + 31);
+#ifdef HAVE_UIOMUX
+                uiomux_unlock (decoder->uiomux, UIOMUX_SH_VPU);
+#endif
 	        if (yf == NULL) {
 	        	fprintf(stderr, "%s: Aborting since mmap() failed.\n",
 	        	       __FUNCTION__);
@@ -807,9 +802,13 @@ static int extract_frame(SHCodecs_Decoder * decoder, long frame_index)
 	        }
 
 #ifdef HAVE_UIOMUX
+                uiomux_lock (decoder->uiomux, UIOMUX_SH_VPU);
                 global_uiomux = decoder->uiomux;
 #endif
 	        m4iph_unmap_sdr_mem(yf, luma_size + (luma_size >> 1) + ry + 31);
+#ifdef HAVE_UIOMUX
+                uiomux_unlock (decoder->uiomux, UIOMUX_SH_VPU);
+#endif
         }
 
 	decoder->frame_count++;
