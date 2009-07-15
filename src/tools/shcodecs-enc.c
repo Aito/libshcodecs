@@ -106,24 +106,17 @@ void sig_handler(int sig)
 	kill(getpid(), sig);
 }
 
-int main(int argc, char *argv[])
+static int encode_file (char * filename)
 {
+	struct shenc * shenc;
 	int encode_return_code;
 	int return_code;
-	struct shenc * shenc;
-
-	if (argc != 2 || !strncmp (argv[1], "-h", 2) || !strncmp (argv[1], "--help", 6)) {
-		usage (argv[0]);
-		return -1;
-        }
 
 	shenc = shenc_new();
 
-	strcpy(shenc->ainfo.ctrl_file_name_buf, argv[1]);
-	return_code = GetFromCtrlFTop((const char *)
-				      shenc->ainfo.ctrl_file_name_buf,
-				      &shenc->ainfo,
-				      &shenc->stream_type);
+	strcpy(shenc->ainfo.ctrl_file_name_buf, filename);
+	return_code = GetFromCtrlFTop((const char *)shenc->ainfo.ctrl_file_name_buf,
+				      &shenc->ainfo, &shenc->stream_type);
 	if (return_code < 0) {
 		perror("Error opening control file");
 		return (-1);
@@ -146,15 +139,13 @@ int main(int argc, char *argv[])
 	fprintf(stderr, "Output file: %s\n", shenc->ainfo.output_file_name_buf);
 
         shenc->ainfo.ceu = NULL;
-        signal (SIGINT, sig_handler);
-        signal (SIGPIPE, sig_handler);
 
 	shenc->encoder = shcodecs_encoder_init(shenc->ainfo.xpic, shenc->ainfo.ypic, shenc->stream_type);
 
 	shcodecs_encoder_set_input_callback(shenc->encoder, get_input, shenc);
 	shcodecs_encoder_set_output_callback(shenc->encoder, write_output, shenc);
 
-	/*open input YUV data file */
+	/* open input YUV data file */
 	return_code = open_input_image_file(&shenc->ainfo);
 	if (return_code != 0) {	/* error */
 		perror("Error opening input file");
@@ -187,4 +178,17 @@ int main(int argc, char *argv[])
 	cleanup (shenc);
 
 	return 0;
+}
+
+int main(int argc, char *argv[])
+{
+	if (argc != 2 || !strncmp (argv[1], "-h", 2) || !strncmp (argv[1], "--help", 6)) {
+		usage (argv[0]);
+		return -1;
+        }
+
+        signal (SIGINT, sig_handler);
+        signal (SIGPIPE, sig_handler);
+
+        return encode_file (argv[1]);
 }
