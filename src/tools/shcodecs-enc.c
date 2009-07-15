@@ -22,6 +22,7 @@
 #endif
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <limits.h>
 #include <ctype.h>
 #include <string.h>
@@ -45,10 +46,6 @@ int open_output_file(APPLI_INFO *);
 int select_inputfile_set_param(SHCodecs_Encoder * encoder,
 			       APPLI_INFO * appli_info);
 
-
-SHCodecs_Encoder *encoder; /* Encoder */
-APPLI_INFO ainfo; /* Application Data */
-
 static void
 usage (const char * progname)
 {
@@ -57,30 +54,51 @@ usage (const char * progname)
         printf ("\nPlease report bugs to <linux-sh@vger.kernel.org>\n");
 }
 
+struct shenc {
+        APPLI_INFO ainfo; /* Application Data */
+        SHCodecs_Encoder *encoder; /* Encoder */
+	long stream_type;
+};
+
+struct shenc *
+shenc_new (void)
+{
+        struct shenc * shenc;
+
+        shenc = malloc (sizeof(*shenc));
+        if (shenc == NULL) return NULL;
+
+        memset (shenc, 0, sizeof(*shenc));
+
+        return shenc;
+}
+
+
 /* SHCodecs_Encoder_Input callback for acquiring an image from the input file */
 static int get_input(SHCodecs_Encoder * encoder, void *user_data)
 {
-	APPLI_INFO *appli_info = (APPLI_INFO *) user_data;
-	return load_1frame_from_image_file(encoder, appli_info);
+	struct shenc * shenc = (struct shenc *)user_data;
+	return load_1frame_from_image_file(shenc->encoder, &shenc->ainfo);
 }
 
 /* SHCodecs_Encoder_Output callback for writing encoded data to the output file */
 static int write_output(SHCodecs_Encoder * encoder,
 			unsigned char *data, int length, void *user_data)
 {
-	APPLI_INFO *appli_info = (APPLI_INFO *) user_data;
-	return fwrite(data, 1, length, appli_info->output_file_fp);
+	struct shenc * shenc = (struct shenc *)user_data;
+	return fwrite(data, 1, length, shenc->ainfo.output_file_fp);
 }
 
-void cleanup (void)
+void cleanup (struct shenc * shenc)
 {
-        if (encoder != NULL)
-	        shcodecs_encoder_close(encoder);
+        if (shenc->encoder != NULL)
+	        shcodecs_encoder_close(shenc->encoder);
+	free (shenc);
 }
 
 void sig_handler(int sig)
 {
-	cleanup ();
+	//cleanup ();
 
 #ifdef DEBUG
         fprintf (stderr, "Got signal %d\n", sig);
@@ -95,72 +113,72 @@ int main(int argc, char *argv[])
 {
 	int encode_return_code;
 	int return_code;
-	long stream_type;
+	struct shenc * shenc;
 
 	if (argc != 2 || !strncmp (argv[1], "-h", 2) || !strncmp (argv[1], "--help", 6)) {
 		usage (argv[0]);
 		return -1;
         }
 
-	strcpy(ainfo.ctrl_file_name_buf, argv[1]);
+	shenc = shenc_new();
+
+	strcpy(shenc->ainfo.ctrl_file_name_buf, argv[1]);
 	return_code = GetFromCtrlFTop((const char *)
-				      ainfo.ctrl_file_name_buf,
-				      &ainfo,
-				      &stream_type);
+				      shenc->ainfo.ctrl_file_name_buf,
+				      &shenc->ainfo,
+				      &shenc->stream_type);
 	if (return_code < 0) {
 		perror("Error opening control file");
 		return (-1);
 	}
 
 	/* Input path */
-	snprintf(ainfo.input_file_name_buf, 256, "%s/%s",
-		 ainfo.buf_input_yuv_file_with_path,
-		 ainfo.buf_input_yuv_file);
-	fprintf(stderr, "Input file: %s\n", ainfo.input_file_name_buf);
+	snprintf(shenc->ainfo.input_file_name_buf, 256, "%s/%s",
+		 shenc->ainfo.buf_input_yuv_file_with_path,
+		 shenc->ainfo.buf_input_yuv_file);
+	fprintf(stderr, "Input file: %s\n", shenc->ainfo.input_file_name_buf);
 
 	/* Output path */
-        if (!strcmp (ainfo.buf_output_stream_file, "-")) {
-                snprintf (ainfo.output_file_name_buf, 256, "-");
+        if (!strcmp (shenc->ainfo.buf_output_stream_file, "-")) {
+                snprintf (shenc->ainfo.output_file_name_buf, 256, "-");
         } else {
-	        snprintf(ainfo.output_file_name_buf, 256, "%s/%s",
-	        	 ainfo.buf_output_directry,
-	        	 ainfo.buf_output_stream_file);
+	        snprintf(shenc->ainfo.output_file_name_buf, 256, "%s/%s",
+	        	 shenc->ainfo.buf_output_directry,
+	        	 shenc->ainfo.buf_output_stream_file);
         }
-	fprintf(stderr, "Output file: %s\n", ainfo.output_file_name_buf);
+	fprintf(stderr, "Output file: %s\n", shenc->ainfo.output_file_name_buf);
 
-        encoder = NULL;
-        ainfo.ceu = NULL;
+        shenc->ainfo.ceu = NULL;
         signal (SIGINT, sig_handler);
         signal (SIGPIPE, sig_handler);
 
-	encoder = shcodecs_encoder_init(ainfo.xpic, ainfo.ypic, stream_type);
+	shenc->encoder = shcodecs_encoder_init(shenc->ainfo.xpic, shenc->ainfo.ypic, shenc->stream_type);
 
-	shcodecs_encoder_set_input_callback(encoder, get_input, &ainfo);
-	shcodecs_encoder_set_output_callback(encoder, write_output,
-					     &ainfo);
+	shcodecs_encoder_set_input_callback(shenc->encoder, get_input, shenc);
+	shcodecs_encoder_set_output_callback(shenc->encoder, write_output, shenc);
 
 	/*open input YUV data file */
-	return_code = open_input_image_file(&ainfo);
+	return_code = open_input_image_file(&shenc->ainfo);
 	if (return_code != 0) {	/* error */
 		perror("Error opening input file");
 		return (-6);
 	}
 
 	/* open output file */
-	return_code = open_output_file(&ainfo);
+	return_code = open_output_file(&shenc->ainfo);
 	if (return_code != 0) {	/* error */
 		perror("Error opening output file");
 		return (-6);
 	}
 
 	/* set parameters for use in encoding */
-	return_code = select_inputfile_set_param(encoder, &ainfo);
+	return_code = select_inputfile_set_param(shenc->encoder, &shenc->ainfo);
 	if (return_code == -1) {	/* error */
 		fprintf (stderr, "select_inputfile_set_param ERROR! \n");
 		return (-3);
 	}
 
-	encode_return_code = shcodecs_encoder_run(encoder);
+	encode_return_code = shcodecs_encoder_run(shenc->encoder);
 
 	if (encode_return_code < 0) {
 		fprintf(stderr, "Error encoding, error code=%d\n",
@@ -169,7 +187,7 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "Encode Success\n");
 	}
 
-	cleanup ();
+	cleanup (shenc);
 
 	return 0;
 }
