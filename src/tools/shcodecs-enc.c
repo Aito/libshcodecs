@@ -31,6 +31,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <pthread.h>
 #include <signal.h>
 
 #include <shcodecs/shcodecs_encoder.h>
@@ -38,6 +39,8 @@
 #include "avcbencsmp.h"		/* User Application Sample Header */
 
 #include "ControlFileUtil.h"
+
+#define MAX_ENCODERS 8
 
 int open_input_image_file(APPLI_INFO *);
 int load_1frame_from_image_file(SHCodecs_Encoder * encoder, APPLI_INFO * appli_info);
@@ -58,18 +61,8 @@ struct shenc {
 	long stream_type;
 };
 
-struct shenc * shenc_new (void)
-{
-        struct shenc * shenc;
-
-        shenc = malloc (sizeof(*shenc));
-        if (shenc == NULL) return NULL;
-
-        memset (shenc, 0, sizeof(*shenc));
-
-        return shenc;
-}
-
+static pthread_t childs[MAX_ENCODERS];
+static struct shenc * shencs[MAX_ENCODERS];
 
 /* SHCodecs_Encoder_Input callback for acquiring an image from the input file */
 static int get_input(SHCodecs_Encoder * encoder, void *user_data)
@@ -86,17 +79,8 @@ static int write_output(SHCodecs_Encoder * encoder,
 	return fwrite(data, 1, length, shenc->ainfo.output_file_fp);
 }
 
-static void cleanup (struct shenc * shenc)
-{
-        if (shenc->encoder != NULL)
-	        shcodecs_encoder_close(shenc->encoder);
-	free (shenc);
-}
-
 void sig_handler(int sig)
 {
-	//cleanup ();
-
 #ifdef DEBUG
         fprintf (stderr, "Got signal %d\n", sig);
 #endif
@@ -106,13 +90,17 @@ void sig_handler(int sig)
 	kill(getpid(), sig);
 }
 
-static int encode_file (char * filename)
+static int setup_file (char * filename, int i)
 {
 	struct shenc * shenc;
-	int encode_return_code;
 	int return_code;
 
-	shenc = shenc_new();
+        shenc = malloc (sizeof(*shenc));
+        if (shenc == NULL) return -1;
+
+	shencs[i] = shenc;
+
+        memset (shenc, 0, sizeof(*shenc));
 
 	strcpy(shenc->ainfo.ctrl_file_name_buf, filename);
 	return_code = GetFromCtrlFTop((const char *)shenc->ainfo.ctrl_file_name_buf,
@@ -166,6 +154,13 @@ static int encode_file (char * filename)
 		return (-3);
 	}
 
+	return 0;
+}
+
+static void encode_shenc (struct shenc * shenc)
+{
+	int encode_return_code;
+
 	encode_return_code = shcodecs_encoder_run(shenc->encoder);
 
 	if (encode_return_code < 0) {
@@ -175,20 +170,47 @@ static int encode_file (char * filename)
 		fprintf(stderr, "Encode Success\n");
 	}
 
-	cleanup (shenc);
+        if (shenc->encoder != NULL)
+                shcodecs_encoder_close(shenc->encoder);
 
-	return 0;
+	pthread_exit (NULL);
+
+	return;
 }
 
 int main(int argc, char *argv[])
 {
-	if (argc != 2 || !strncmp (argv[1], "-h", 2) || !strncmp (argv[1], "--help", 6)) {
+	int i;
+
+	if (argc < 2 || !strncmp (argv[1], "-h", 2) || !strncmp (argv[1], "--help", 6)) {
 		usage (argv[0]);
 		return -1;
         }
 
+	memset (childs, 0, sizeof(childs));
+	memset (shencs, 0, sizeof(shencs));
+
         signal (SIGINT, sig_handler);
         signal (SIGPIPE, sig_handler);
 
-        return encode_file (argv[1]);
+	for (i=0; i < argc-1; i++) {
+	       if (setup_file (argv[i+1], i) != 0)
+		       shencs[i] = NULL;
+	}
+
+	for (i=0; i < argc-1; i++) {
+		if (shencs[i])
+	                pthread_create (&childs[i], NULL, encode_shenc, shencs[i]);
+	}
+
+	for (i=0; i < argc-1; i++) {
+		char * ret;
+
+		fprintf (stderr, "Waiting on child %d...\n", i);
+
+	        if (shencs[i] && childs[i])
+			pthread_join (childs[i], &ret);
+	}
+
+        return 0;
 }
