@@ -341,7 +341,7 @@ h264_encode_sps_pps(SHCodecs_Encoder *enc, avcbe_slice_stat *slice_stat, long fr
 	/* Get the size */
         VPU_LOCK(enc->uiomux);
 	avcbe_get_last_slice_stat(enc->stream_info, slice_stat);
-        VPU_LOCK(enc->uiomux);
+        VPU_UNLOCK(enc->uiomux);
 
 	return 0;
 }
