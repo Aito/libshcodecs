@@ -43,11 +43,9 @@ int open_input_image_file(APPLI_INFO *);
 int load_1frame_from_image_file(SHCodecs_Encoder * encoder, APPLI_INFO * appli_info);
 
 int open_output_file(APPLI_INFO *);
-int select_inputfile_set_param(SHCodecs_Encoder * encoder,
-			       APPLI_INFO * appli_info);
+int select_inputfile_set_param(SHCodecs_Encoder * encoder, APPLI_INFO * appli_info);
 
-static void
-usage (const char * progname)
+static void usage (const char * progname)
 {
         printf ("Usage: %s <control file>\n", progname);
         printf ("Encode a video file using the SH-Mobile VPU\n");
@@ -60,8 +58,7 @@ struct shenc {
 	long stream_type;
 };
 
-struct shenc *
-shenc_new (void)
+struct shenc * shenc_new (void)
 {
         struct shenc * shenc;
 
@@ -89,7 +86,7 @@ static int write_output(SHCodecs_Encoder * encoder,
 	return fwrite(data, 1, length, shenc->ainfo.output_file_fp);
 }
 
-void cleanup (struct shenc * shenc)
+static void cleanup (struct shenc * shenc)
 {
         if (shenc->encoder != NULL)
 	        shcodecs_encoder_close(shenc->encoder);
