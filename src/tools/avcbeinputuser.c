@@ -32,7 +32,7 @@
 
 #include "capture.h"
 
-#include "veu_colorspace.h"
+#include <shveu/shveu.h>
 
 #include <shcodecs/shcodecs_encoder.h>
 
